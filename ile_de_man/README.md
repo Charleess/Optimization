@@ -1,5 +1,20 @@
 # Plus court chemin
 
+## Utilisation
+
+Nécessite d'avoir installé SCIP. Pour pouvoir accéder à la ligne de commande, penser à exporter les deux variables d'environnement nécessaires:
+
+```bash
+export PATH=$PATH:/PATH/TO/SCIP/bin
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:PATH/TO/SCIP/lib
+```
+
+Piper ensuite le résultat dans le `visualize.js` afin de pouvoir visualiser le résultat
+
+```bash
+$ scip -c "read plus_court_chemin.zpl" -c optimize -c "display sols 0" -c quit  | ./visualize.py man.txt > visualize.js
+```
+
 ## Explications ZIMPL
 
 ```zpl
