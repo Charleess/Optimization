@@ -5,6 +5,7 @@ from pyscipopt import Model, quicksum
 import matplotlib.pyplot as plot
 
 class Solver():
+    """ Solver for the Museum problem """
     def __init__(self, filename):
         self.__filename = filename
         self.positions = []
@@ -29,7 +30,7 @@ class Solver():
         #     for pos in positions:
         #         x, y = pos
         #         end.write(str(x)+','+str(y)+'\n')
-                
+
         parameters["width"] = int(max([x[1] for x in positions]))
         parameters["height"] = int(max([x[0] for x in positions]))
 
@@ -48,10 +49,10 @@ class Solver():
         _range = _range - range_offset
 
         dx, dy = x2 - x1, y2 - y1
-        q = math.sqrt(dx**2 + dy**2) # distance between points
+        q = dx**2 + dy**2 # distance between points
         x3, y3 = (x1 + x2) / 2, (y1 + y2) / 2 # halfway point
 
-        d = math.sqrt(_range**2 - (q / 2)**2)
+        d = math.sqrt(_range**2 - (q / 4))
 
         c1x = x3 - d * dy / q
         c1y = y3 + d * dx / q
@@ -109,7 +110,9 @@ class Solver():
         # Add the cameras
         X = {} # Will be indexed with tuples
         for camera_type, camera_index, x, y in camera_positions:
-            X[camera_type, camera_index] = model.addVar(str(camera_type)+','+str(x)+','+str(y), vtype='B')
+            X[camera_type, camera_index] = model.addVar(
+                str(camera_type)+','+str(x)+','+str(y), vtype='B'
+            )
 
         print("Adding the constraints to the model...")
         # Add the constraints on every piece
@@ -117,7 +120,8 @@ class Solver():
             cameras = set()
             x1, y1 = piece_position
             for camera_type, camera_index, x2, y2 in camera_positions:
-                squared_distance = pow((float(x2) - float(x1)), 2) + pow((float(y2) - float(y1)), 2) # Distance to the piece
+                squared_distance = \
+                    pow((float(x2) - float(x1)), 2) + pow((float(y2) - float(y1)), 2)
 
                 if squared_distance >= pow(self.parameters["long_cam_range"], 2):
                     # The two locations are too far away
@@ -148,12 +152,78 @@ class Solver():
 
         model.setObjective(
             quicksum(
-                X[camera_type, camera_index] * price[camera_type] for camera_type, camera_index, x, y in camera_positions
+                X[camera_type, camera_index] * price[camera_type] \
+                    for camera_type, camera_index, x, y in camera_positions
             ), "minimize"
         )
 
         self.model = model
-    
+
+    @staticmethod
+    def __get_neighbors(x, y, r):
+        """ Get the possible solutions around (x, y) """
+        square = [(i, j) for i in range(x - r, x + r) for j in range(y - r, y + r)]
+        res = []
+        for (a, b) in square:
+            if pow((x - a), 2) + pow((y - b), 2) <= r and a >= 0 and b >= 0 and a < 799 and b < 799:
+                res.append((a, b))
+
+        return res
+
+    def __initialize_model_brute(self):
+        """ Brute force method """
+        model = Model() # From Pyscipopt
+        X = {} # Variables
+        print("Adding the constraints to the model...")
+        camera_positions = set()
+        camera_constraints = {}
+
+        total_long_cameras = set()
+        total_short_cameras = set()
+
+        # Add the constraints on every piece
+        for piece_position in self.positions:
+            cameras = set()
+            x1, y1 = piece_position
+            # Get the short cameras
+            short_cameras = [(1, i, j) for (i, j) in self.__get_neighbors(x1, y1, self.parameters["short_cam_range"])]
+            long_cameras = [(2, i, j) for (i, j) in self.__get_neighbors(x1, y1, self.parameters["long_cam_range"])]
+            cameras = short_cameras + long_cameras
+            camera_constraints[piece_position] = cameras
+            total_long_cameras.update(long_cameras)
+            total_short_cameras.update(short_cameras)
+
+        for piece_position in self.positions:
+            for k, i, j in camera_constraints[piece_position]:
+                X[k, i, j] = model.addVar(
+                    str(k)+','+str(i)+','+str(j), vtype='B'
+                )
+
+        for piece_position in self.positions:
+            model.addCons(
+                quicksum(
+                    X[k, i, j] for (k, i, j) in camera_constraints[piece_position]
+                ) >= 1
+            )
+
+        print("Adding the price constraint...")
+        # Define the minimization
+        price = {
+            1: self.parameters["short_cam_price"],
+            2: self.parameters["long_cam_price"]
+        }
+
+        model.setObjective(
+            self.parameters["short_cam_price"] * quicksum(
+                X[k, i, j] for k, i, j in total_short_cameras) + \
+                self.parameters["long_cam_price"] * quicksum(
+                    X[k, i, j] for k, i, j in total_long_cameras
+                )
+            , "minimize"
+        )
+
+        self.model = model
+
     def create_submission(self):
         if self.model:
             with open("submission_{}.txt".format(strftime("%Y-%m-%d", gmtime())), "w") as end:
@@ -161,12 +231,15 @@ class Solver():
                     if self.model.getVal(var):
                         end.write(var.name + "\n")
 
-    def solve(self):
+    def solve(self, brute=False):
         """ Solve the problem """
         print("Starting...")
         t1 = time()
         self.positions, self.parameters = self.__parse_file()
-        self.__initialize_model()
+        if not brute:
+            self.__initialize_model()
+        else:
+            self.__initialize_model_brute()
         #self.model.hideOutput()
         self.model.optimize()
         self.create_submission()
@@ -182,7 +255,9 @@ class Solver():
         with open("input_9.txt", 'r') as f:
             pieces_plot = []
             for piece_position in f.readlines()[2:]:
-                pieces_plot.append(plot.Circle(tuple(map(int, piece_position.strip().split(","))), 0.3, color='r'))
+                pieces_plot.append(
+                    plot.Circle(tuple(map(int, piece_position.strip().split(","))), 0.3, color='r')
+                )
 
         with open("submission_2018-02-01.txt", 'r') as f:
             cameras_plot = []
@@ -222,7 +297,7 @@ class Solver():
                     line.split(",")[1],
                     line.split(",")[2]
                 ])
-        
+
         for piece_index, piece_position in enumerate(self.positions):
             x1, y1 = piece_position
             monitored = False
@@ -243,6 +318,6 @@ class Solver():
 
 if __name__ == "__main__":
     solver = Solver("input_9.txt")
-    solver.solve()
+    solver.solve(brute=False)
     solver.print_solution()
     #solver.test_solution("submission_2018-02-01.txt")
